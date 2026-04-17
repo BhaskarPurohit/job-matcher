@@ -2,7 +2,7 @@ import 'server-only'
 import { createClient } from '@/lib/supabase/server'
 import type { Analysis } from '@/types/analysis'
 
-function mapRow(data: Record<string, unknown>): Analysis {
+export function mapRow(data: Record<string, unknown>): Analysis {
   return {
     id:              data.id as string,
     jobTitle:        data.job_title as string,

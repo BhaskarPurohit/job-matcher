@@ -17,6 +17,7 @@ import { ArrowLeft, Download, Zap, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ScoreRing } from '@/components/analysis/ScoreRing'
 import { CopyButton } from '@/components/analysis/CopyButton'
+import { StrengthsList } from '@/components/analysis/StrengthsList'
 import { getAnalysisById } from '@/lib/data/analyses'
 import type { Analysis, MatchTier, SkillImportance } from '@/types/analysis'
 
@@ -253,6 +254,9 @@ export default async function AnalysisResultPage({
 
         {/* Skills */}
         <SkillsCard analysis={analysis} />
+
+        {/* Strengths */}
+        <StrengthsList strengths={analysis.strengths} />
 
         {/* Tailored summary */}
         <Card className="bg-surface border-border">
