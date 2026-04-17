@@ -1,0 +1,109 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================
+   DESIGN SYSTEM — match//ai
+   All raw hex values live here as CSS variables.
+   Everywhere else in the codebase uses semantic Tailwind tokens.
+   ============================================================ */
+
+@layer base {
+  :root {
+    /* ── Backgrounds ── */
+    --color-bg:           #0A0A0B;   /* page root */
+    --color-surface:      #111113;   /* cards, panels, inputs */
+    --color-surface-hover:#0F0F11;   /* table row hover, subtle hover */
+
+    /* ── Borders ── */
+    --color-border:       #1F1F23;   /* default border */
+    --color-border-hover: #2A2A2E;   /* hover state border */
+
+    /* ── Text ── */
+    --color-text:         #FAFAFA;   /* primary — zinc-50 */
+    --color-muted:        #71717A;   /* secondary — zinc-500 */
+
+    /* ── Accent (green = confidence, match, go) ── */
+    --color-accent:       #22C55E;
+    --color-accent-hover: #16A34A;
+    --color-accent-dim:   #22C55E1A; /* /10 alpha — bg tints */
+
+    /* ── Warning (amber = partial match, caution) ── */
+    --color-warning:      #F59E0B;
+    --color-warning-dim:  #F59E0B1A;
+
+    /* ── Danger (red = missing, weak match) ── */
+    --color-danger:       #EF4444;
+    --color-danger-dim:   #EF44441A;
+  }
+
+  /* Global baseline — every page inherits dark background */
+  html {
+    background-color: var(--color-bg);
+    color: var(--color-text);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Consistent border color for all elements using Tailwind's border utility */
+  *,
+  ::before,
+  ::after {
+    border-color: var(--color-border);
+  }
+}
+
+/* ============================================================
+   COMPONENT UTILITIES
+   Reusable compound classes for patterns used 3+ times.
+   Keep these minimal — prefer Tailwind tokens in JSX.
+   ============================================================ */
+
+@layer components {
+  /* Surface card — replaces bg-[#111113] border-[#1F1F23] everywhere */
+  .card-surface {
+    @apply bg-surface border border-border;
+  }
+
+  /* Score badge variants — used in table rows and result pages */
+  .badge-strong {
+    @apply bg-accent-dim text-accent border border-accent/20 font-mono font-bold;
+  }
+  .badge-moderate {
+    @apply bg-warning-dim text-warning border border-warning/20 font-mono font-bold;
+  }
+  .badge-weak {
+    @apply bg-danger-dim text-danger border border-danger/20 font-mono font-bold;
+  }
+
+  /* Nav link — active and default states */
+  .nav-link {
+    @apply flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors
+           text-muted hover:text-text hover:bg-surface;
+  }
+  .nav-link-active {
+    @apply flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium
+           bg-accent-dim text-accent;
+  }
+
+  /* Primary CTA button — replaces bg-[#22C55E] hover:bg-[#16A34A] text-black */
+  .btn-primary {
+    @apply bg-accent hover:bg-accent-hover text-black font-semibold transition-colors;
+  }
+
+  /* Ghost button — replaces text-[#71717A] hover:text-zinc-100 hover:bg-[#1F1F23] */
+  .btn-ghost {
+    @apply text-muted hover:text-text hover:bg-border transition-colors;
+  }
+
+  /* Mono number display — scores, stats */
+  .mono-stat {
+    font-family: JetBrains Mono, monospace;
+    @apply text-3xl font-bold text-text;
+  }
+
+  /* Section divider */
+  .divider {
+    @apply border-t border-border;
+  }
+}
