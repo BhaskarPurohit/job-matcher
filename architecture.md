@@ -1,14 +1,53 @@
 # AI Resume + Job Match Analyzer — Architecture
 
+> Last updated: 2026-04-17
+
 ---
 
-## 1. High-Level Architecture
+## 1. Project Status: What's Built vs What's Missing
+
+### ✅ Built & Working
+| Area | Status | Notes |
+|------|--------|-------|
+| `POST /api/analyze` | ✅ Complete | Auth, Zod validation, Claude call, Supabase persist |
+| AI pipeline (`lib/ai/`) | ✅ Complete | Single-call Claude haiku, Zod-validated output |
+| Zod schemas | ✅ Complete | Request + AI output validation |
+| Type system | ✅ Complete | `types/analysis.ts` covers all shapes |
+| Analysis result page | ✅ Complete | Server component, score ring, skills, suggestions |
+| Analyze form page | ✅ Complete | 3-step UX, char counters, field errors |
+| History data layer | ✅ Complete | `getAnalysisById`, `listAnalysesByUser` |
+| Auth middleware | ✅ Complete | Protects dashboard routes |
+| UI components | ✅ Complete | shadcn/ui base + ScoreRing, CopyButton |
+| Sidebar layout | ✅ Complete | Dashboard shell |
+
+### ❌ Missing Pieces (Critical for MVP)
+
+| Missing | Priority | Why It's Blocking |
+|---------|----------|-------------------|
+| **Supabase DB migration file** | 🔴 P0 | App can't persist data without the `analyses` table |
+| **Dashboard home page** | 🔴 P0 | `/dashboard` route likely blank or broken |
+| **History page** | 🔴 P0 | `history/page.tsx` exists but needs UI + data wiring |
+| **Auth pages (login/signup)** | 🔴 P0 | Shell exists but forms need Supabase auth calls |
+| **`lib/hooks/useAnalyze.ts`** | 🔴 P0 | Analyze form depends on this hook — needs audit |
+| **PDF/file upload** | 🟡 P1 | Currently text-paste only; no `POST /api/resume/upload` |
+| **`GET /api/analyses` + `GET /api/analyses/[id]`** | 🟡 P1 | Only POST analyze exists; history/result pages need GET routes |
+| **Export PDF button** | 🟡 P1 | Button renders but does nothing (`Download` icon, no handler) |
+| **Strengths section in UI** | 🟡 P1 | AI returns `strengths[]` but result page doesn't render it |
+| **`DELETE /api/analyses/[id]`** | 🟢 P2 | Nice to have for history management |
+| **Rate limiting** | 🟢 P2 | No protection on `/api/analyze` yet |
+| **Error/loading UI states** | 🟢 P2 | `error.tsx` / `loading.tsx` stubs exist, need content |
+| **Supabase types codegen** | 🟢 P2 | `types/database.ts` referenced in arch but doesn't exist |
+| **Environment variable validation** | 🟢 P2 | No startup check for missing `ANTHROPIC_API_KEY` etc. |
+
+---
+
+## 2. High-Level Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                        VERCEL EDGE                              │
 │  ┌─────────────────────────────────────────────────────────┐   │
-│  │              Next.js App Router (SSR + API)             │   │
+│  │              Next.js 14 App Router (SSR + API)          │   │
 │  │                                                         │   │
 │  │  ┌──────────────┐    ┌──────────────┐  ┌────────────┐  │   │
 │  │  │  React UI    │    │  App Routes  │  │ API Routes │  │   │
@@ -19,397 +58,338 @@
               │                              │
               ▼                              ▼
 ┌─────────────────────┐        ┌─────────────────────────┐
-│   Supabase          │        │   OpenAI / Claude API   │
+│   Supabase          │        │   Anthropic Claude API  │
 │  ┌───────────────┐  │        │                         │
-│  │  PostgreSQL   │  │        │  - Resume parsing       │
-│  │  (schema)     │  │        │  - Match scoring        │
-│  ├───────────────┤  │        │  - Skill gap analysis   │
-│  │  Auth         │  │        │  - Suggestions          │
-│  ├───────────────┤  │        └─────────────────────────┘
-│  │  Storage      │  │
-│  │  (resumes)    │  │
+│  │  PostgreSQL   │  │        │  Model: haiku-4-5       │
+│  │  (analyses)   │  │        │  Single-call pipeline   │
+│  ├───────────────┤  │        │  Zod-validated output   │
+│  │  Auth         │  │        └─────────────────────────┘
 │  └───────────────┘  │
 └─────────────────────┘
 ```
 
 **Request flow:**
-1. User uploads resume → Supabase Storage
-2. User pastes job description → stored in DB
-3. API route triggers AI pipeline (OpenAI/Claude)
-4. AI returns structured JSON → stored in DB
-5. UI renders match score, gaps, suggestions
+1. User pastes resume + job description → `/analyze` form
+2. `useAnalyze` hook → `POST /api/analyze`
+3. API route: auth check → Zod validate → Claude API call → Zod validate output → Supabase insert
+4. Response redirects to `/analysis/[id]`
+5. Server component fetches from Supabase → renders result
 
 ---
 
-## 2. Folder Structure
+## 3. Folder Structure (Actual vs Planned)
 
 ```
-ai-resume-matcher/
+job-matcher/
 ├── app/
 │   ├── (auth)/
-│   │   ├── login/page.tsx
-│   │   └── signup/page.tsx
+│   │   ├── layout.tsx               ✅ shell
+│   │   ├── login/page.tsx           ⚠️  needs Supabase auth wiring
+│   │   └── signup/page.tsx          ⚠️  needs Supabase auth wiring
 │   ├── (dashboard)/
-│   │   ├── layout.tsx
-│   │   ├── page.tsx                    # Dashboard home
-│   │   ├── analyze/
-│   │   │   └── page.tsx                # New analysis form
-│   │   ├── history/
-│   │   │   └── page.tsx                # Analysis history
+│   │   ├── layout.tsx               ✅ complete
+│   │   ├── dashboard/page.tsx       ❌ likely blank
+│   │   ├── analyze/page.tsx         ✅ complete
+│   │   ├── history/page.tsx         ⚠️  needs UI + data
 │   │   └── analysis/[id]/
-│   │       └── page.tsx                # Single result view
+│   │       ├── page.tsx             ✅ complete
+│   │       ├── error.tsx            ⚠️  stub, needs content
+│   │       └── loading.tsx          ⚠️  stub, needs content
 │   ├── api/
-│   │   ├── analyze/
-│   │   │   └── route.ts                # POST: trigger analysis
-│   │   ├── analyses/
-│   │   │   ├── route.ts                # GET: list history
-│   │   │   └── [id]/route.ts           # GET: single analysis
-│   │   ├── resume/
-│   │   │   └── upload/route.ts         # POST: upload resume
-│   │   └── webhooks/
-│   │       └── stripe/route.ts         # (scalable: billing)
-│   └── layout.tsx
+│   │   └── analyze/route.ts         ✅ complete
+│   │   ── analyses/                 ❌ MISSING
+│   │      ├── route.ts              ❌ GET list
+│   │      └── [id]/route.ts         ❌ GET + DELETE single
+│   │   ── resume/upload/route.ts    ❌ MISSING (P1)
+│   ├── auth/callback/route.ts       ✅ OAuth callback
+│   ├── globals.css                  ✅
+│   ├── layout.tsx                   ✅
+│   └── page.tsx                     ✅ landing
 │
 ├── components/
-│   ├── ui/                             # shadcn/ui components
+│   ├── ui/                          ✅ shadcn/ui components
 │   ├── analysis/
-│   │   ├── ScoreRing.tsx
-│   │   ├── SkillGapList.tsx
-│   │   ├── SuggestionCard.tsx
-│   │   └── AnalysisResult.tsx
-│   ├── resume/
-│   │   ├── ResumeUpload.tsx
-│   │   └── ResumePreview.tsx
-│   └── forms/
-│       └── AnalyzeForm.tsx
+│   │   ├── ScoreRing.tsx            ✅ complete
+│   │   └── CopyButton.tsx           ✅ complete
+│   │   ── StrengthsList.tsx         ❌ MISSING (strengths not rendered)
+│   └── layout/
+│       └── Sidebar.tsx              ✅ complete
 │
 ├── lib/
 │   ├── ai/
-│   │   ├── pipeline.ts                 # Orchestrates AI calls
-│   │   ├── prompts.ts                  # All prompt templates
-│   │   ├── parsers.ts                  # Parse AI JSON output
-│   │   └── providers/
-│   │       ├── openai.ts
-│   │       └── claude.ts
+│   │   ├── analyze.ts               ✅ complete (Claude, Zod)
+│   │   ├── prompts.ts               ✅ complete
+│   │   └── schema.ts                ✅ complete
+│   ├── data/
+│   │   └── analyses.ts              ✅ complete
+│   ├── hooks/
+│   │   └── useAnalyze.ts            ⚠️  needs audit
 │   ├── supabase/
-│   │   ├── client.ts                   # Browser client
-│   │   ├── server.ts                   # Server client
-│   │   └── middleware.ts
-│   ├── storage/
-│   │   └── resume.ts                   # Upload/retrieve resume
-│   └── utils/
-│       ├── pdf.ts                      # PDF text extraction
-│       └── validation.ts
+│   │   ├── client.ts                ✅ complete
+│   │   └── server.ts                ✅ complete
+│   └── utils.ts                     ✅ complete
 │
 ├── types/
-│   ├── analysis.ts
-│   ├── resume.ts
-│   └── database.ts                     # Generated Supabase types
+│   ├── analysis.ts                  ✅ complete
+│   └── database.ts                  ❌ MISSING (Supabase generated types)
 │
-├── middleware.ts                        # Auth protection
-├── .env.local
-└── supabase/
-    └── migrations/
-        └── 001_initial.sql
+├── supabase/
+│   └── migrations/
+│       └── 001_initial.sql          ❌ MISSING (P0 — nothing persists without this)
+│
+├── middleware.ts                    ✅ complete
+├── next.config.js                   ✅
+├── tailwind.config.ts               ✅
+└── .env.local.example               ✅
 ```
 
 ---
 
-## 3. API Endpoints
+## 4. API Endpoints
 
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| `POST` | `/api/resume/upload` | ✅ | Upload PDF/DOCX → Supabase Storage, extract text |
-| `POST` | `/api/analyze` | ✅ | Trigger AI analysis pipeline |
-| `GET` | `/api/analyses` | ✅ | List user's analysis history |
-| `GET` | `/api/analyses/[id]` | ✅ | Get single analysis result |
-| `DELETE` | `/api/analyses/[id]` | ✅ | Delete analysis |
+| Method | Endpoint | Auth | Status | Description |
+|--------|----------|------|--------|-------------|
+| `POST` | `/api/analyze` | ✅ | ✅ Built | Run AI analysis, persist result |
+| `GET` | `/api/analyses` | ✅ | ❌ Missing | List user's analysis history |
+| `GET` | `/api/analyses/[id]` | ✅ | ❌ Missing | Get single analysis |
+| `DELETE` | `/api/analyses/[id]` | ✅ | ❌ Missing | Delete analysis |
+| `POST` | `/api/resume/upload` | ✅ | ❌ Missing | Upload PDF → extract text |
+| `GET` | `/auth/callback` | — | ✅ Built | Supabase OAuth callback |
 
 ### Request/Response shapes
 
 ```typescript
-// POST /api/analyze
-type AnalyzeRequest = {
-  resumeId: string        // Supabase storage path
-  jobTitle: string
-  jobDescription: string
-  companyName?: string
+// POST /api/analyze — request
+{
+  resumeText: string       // 100–15,000 chars
+  jobDescription: string   // 50–8,000 chars
+  jobTitle?: string        // max 200 chars
+  companyName?: string     // max 200 chars
 }
 
-type AnalyzeResponse = {
-  analysisId: string
-  matchScore: number      // 0-100
-  matchTier: 'strong' | 'moderate' | 'weak'
-  missingSkills: Skill[]
-  presentSkills: Skill[]
-  tailoredSummary: string
-  suggestions: Suggestion[]
-  processingTimeMs: number
+// POST /api/analyze — success response
+{
+  success: true,
+  data: {
+    id: string
+    matchScore: number          // 0–100
+    matchTier: 'strong' | 'moderate' | 'weak'
+    presentSkills: Skill[]
+    missingSkills: Skill[]
+    strengths: string[]
+    tailoredSummary: string
+    suggestions: Suggestion[]
+    processingMs: number
+  }
 }
 
-type Skill = {
-  name: string
-  importance: 'required' | 'preferred' | 'nice-to-have'
-  found: boolean
-}
-
-type Suggestion = {
-  section: 'summary' | 'experience' | 'skills' | 'education'
-  original?: string
-  suggested: string
-  reasoning: string
+// Error response (all routes)
+{
+  success: false
+  code: 'VALIDATION_ERROR' | 'AI_ERROR' | 'RATE_LIMIT' | 'INTERNAL_ERROR'
+  error: string
+  fieldErrors: { field: string; message: string }[]
 }
 ```
 
 ---
 
-## 4. DB Schema
+## 5. Database Schema
 
 ```sql
--- supabase/migrations/001_initial.sql
-
--- Users handled by Supabase Auth (auth.users)
-
-CREATE TABLE resumes (
-  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id      UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  file_name    TEXT NOT NULL,
-  storage_path TEXT NOT NULL,           -- Supabase storage object path
-  extracted_text TEXT,                  -- Plain text from PDF
-  created_at   TIMESTAMPTZ DEFAULT now()
-);
+-- supabase/migrations/001_initial.sql  ← THIS FILE NEEDS TO BE CREATED
 
 CREATE TABLE analyses (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id         UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  resume_id       UUID NOT NULL REFERENCES resumes(id) ON DELETE CASCADE,
   job_title       TEXT NOT NULL,
-  job_description TEXT NOT NULL,
   company_name    TEXT,
 
-  -- AI output (stored as JSONB for flexibility)
+  -- AI output (JSONB for schema flexibility)
   match_score     SMALLINT CHECK (match_score BETWEEN 0 AND 100),
   match_tier      TEXT CHECK (match_tier IN ('strong', 'moderate', 'weak')),
-  missing_skills  JSONB DEFAULT '[]',
   present_skills  JSONB DEFAULT '[]',
+  missing_skills  JSONB DEFAULT '[]',
+  strengths       JSONB DEFAULT '[]',
   tailored_summary TEXT,
   suggestions     JSONB DEFAULT '[]',
 
   -- Meta
-  ai_model        TEXT NOT NULL,        -- 'gpt-4o' | 'claude-3-5-sonnet'
   processing_ms   INTEGER,
-  status          TEXT DEFAULT 'pending' CHECK (status IN ('pending','processing','complete','error')),
-  error_message   TEXT,
   created_at      TIMESTAMPTZ DEFAULT now()
 );
 
--- Indexes
 CREATE INDEX analyses_user_id_idx ON analyses(user_id);
 CREATE INDEX analyses_created_at_idx ON analyses(created_at DESC);
 
--- Row Level Security
-ALTER TABLE resumes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE analyses ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Users own their resumes"
-  ON resumes FOR ALL USING (auth.uid() = user_id);
 
 CREATE POLICY "Users own their analyses"
   ON analyses FOR ALL USING (auth.uid() = user_id);
 ```
 
+> **Note:** `resumes` table is not yet needed since the app uses text-paste only (no file upload built yet).
+
 ---
 
-## 5. AI Processing Pipeline
+## 6. AI Processing Pipeline
+
+### Current implementation (single-call)
+
+```
+User input
+    │
+    ▼
+POST /api/analyze
+    │
+    ├─ Zod validate request (AnalyzeRequestSchema)
+    │
+    ├─ buildAnalysisPrompt(resumeText, jobDescription)
+    │       ↓ single Claude API call
+    │   claude-haiku-4-5  (max_tokens: 1500, temp: 0.2)
+    │
+    ├─ Strip markdown fences → JSON.parse
+    │
+    ├─ Zod validate AI output (AIAnalysisSchema)
+    │       Fields: matchScore, presentSkills, missingSkills,
+    │               strengths, tailoredSummary, suggestions
+    │
+    └─ Supabase INSERT → return { id, ...result }
+```
+
+### AI output schema (what Claude must return)
 
 ```typescript
-// lib/ai/pipeline.ts
-
-export async function runAnalysisPipeline(input: PipelineInput): Promise<AnalysisResult> {
-  // Step 1: Extract structured resume data
-  const resumeData = await extractResumeStructure(input.resumeText)
-
-  // Step 2: Extract job requirements
-  const jobData = await extractJobRequirements(input.jobDescription)
-
-  // Step 3: Score and gap analysis (single call with full context)
-  const analysis = await scoreAndAnalyze(resumeData, jobData)
-
-  // Step 4: Generate tailored suggestions
-  const suggestions = await generateSuggestions(resumeData, jobData, analysis)
-
-  return { ...analysis, suggestions }
-}
-```
-
-### Prompt strategy (2-call approach for MVP)
-
-**Call 1 — Structured extraction + scoring:**
-```
-System: You are an expert ATS resume analyzer. Return ONLY valid JSON.
-
-User:
-RESUME:
-{resumeText}
-
-JOB DESCRIPTION:
-{jobDescription}
-
-Analyze the resume against the job description and return:
 {
-  "matchScore": <0-100>,
-  "matchTier": "strong|moderate|weak",
-  "presentSkills": [{"name": string, "importance": "required|preferred"}],
-  "missingSkills": [{"name": string, "importance": "required|preferred"}],
-  "tailoredSummary": "<2-3 sentence professional summary targeting this role>"
+  matchScore: number            // 0–100 integer
+  presentSkills: Skill[]        // max 20
+  missingSkills: Skill[]        // max 15
+  strengths: string[]           // 1–10 items
+  tailoredSummary: string       // 10–1000 chars
+  suggestions: {
+    section: 'summary' | 'experience' | 'skills' | 'education'
+    suggested: string
+    reasoning: string
+  }[]                           // max 10
 }
 ```
 
-**Call 2 — Suggestions:**
-```
-System: You are a professional resume coach. Return ONLY valid JSON.
-
-User:
-Based on this resume and job match analysis, provide 3-5 specific,
-actionable resume improvements:
-[context from call 1]
-
-Return: {"suggestions": [{"section", "original", "suggested", "reasoning"}]}
-```
-
-### Provider abstraction
-
-```typescript
-// lib/ai/providers/index.ts
-export function getAIProvider() {
-  const provider = process.env.AI_PROVIDER ?? 'openai'
-  return provider === 'claude'
-    ? new ClaudeProvider(process.env.ANTHROPIC_API_KEY!)
-    : new OpenAIProvider(process.env.OPENAI_API_KEY!)
-}
-```
-
-**Model recommendations:**
-- MVP: `gpt-4o-mini` (~$0.003/analysis) or `claude-haiku-4-5`
-- Portfolio polish: `gpt-4o` or `claude-sonnet-4-6`
+### Cost estimate
+- `claude-haiku-4-5`: ~$0.002/analysis at 1,500 output tokens
+- `claude-sonnet-4-6`: ~$0.015/analysis — use for higher accuracy
 
 ---
 
-## 6. Security Considerations
+## 7. Security
 
 ### Authentication
-- Supabase Auth with email/password + Google OAuth
-- `middleware.ts` protects all `/dashboard` and `/api` routes
-- Server-side Supabase client uses `cookies()` — never exposes service role key to client
+- Supabase Auth (email/password + OAuth via `/auth/callback`)
+- `middleware.ts` protects `/dashboard` and `/api` routes
+- Server Supabase client uses `cookies()` — service role key never exposed to client
 
-### File upload
-```typescript
-// Validate before storing
-const ALLOWED_TYPES = [
-  'application/pdf',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-]
-const MAX_SIZE_BYTES = 5 * 1024 * 1024  // 5MB
+### Data protection
+- RLS enforced at DB level: users can only query their own `analyses` rows
+- API routes re-verify `auth.getUser()` as second layer
+- AI responses parsed through Zod before any field is trusted
 
-if (!ALLOWED_TYPES.includes(file.type)) throw new Error('Invalid file type')
-if (file.size > MAX_SIZE_BYTES) throw new Error('File too large')
+### Environment variables
+```
+ANTHROPIC_API_KEY              → server-only (Vercel env var)
+NEXT_PUBLIC_SUPABASE_URL       → safe to expose
+NEXT_PUBLIC_SUPABASE_ANON_KEY  → safe to expose
+SUPABASE_SERVICE_ROLE_KEY      → server-only, NEVER expose to client
 ```
 
-- Store resumes in a **private** Supabase Storage bucket (not public)
-- Generate signed URLs for download, expiring in 1 hour
-- Strip file metadata before AI processing
-
-### API protection
-- All API routes validate `auth.uid()` — users can only access their own data
-- RLS enforced at DB level as a second layer
-- Rate limit `/api/analyze` — 10 requests/hour per user
-  - MVP: simple in-memory counter
-  - Scalable: Upstash Redis
-
-### Secret management
-```
-OPENAI_API_KEY          → Vercel env var (server-only)
-ANTHROPIC_API_KEY       → Vercel env var (server-only)
-SUPABASE_SERVICE_ROLE   → Vercel env var (server-only, NEVER expose to client)
-NEXT_PUBLIC_SUPABASE_URL      → safe to expose
-NEXT_PUBLIC_SUPABASE_ANON_KEY → safe to expose
-```
-
-### AI output safety
-- Always parse AI responses through a Zod schema — never trust raw `JSON.parse()`
-- Sanitize AI text before rendering (avoid `dangerouslySetInnerHTML`)
+### Missing security items
+- [ ] Rate limiting on `/api/analyze` (no protection currently)
+- [ ] File upload validation (when PDF upload is added: type + size check)
+- [ ] Startup env var validation (fail fast if `ANTHROPIC_API_KEY` missing)
 
 ---
 
-## 7. MVP vs Scalable
+## 8. What to Build Next (Prioritized)
 
-### MVP (ship in 7 days)
+### P0 — Can't ship without these
 
-| Concern | Decision | Why |
-|---------|----------|-----|
-| AI calls | Synchronous in API route | Simple, no queue needed |
-| Rate limiting | In-memory counter | No Redis dependency |
-| Resume storage | Supabase Storage | Zero infra setup |
-| PDF parsing | `pdf-parse` npm package | Serverless-compatible |
-| Auth | Supabase email/password | Built-in, 30min setup |
-| Billing | None | Ship first |
-| History | All stored in DB | No archival needed at small scale |
+1. **`supabase/migrations/001_initial.sql`** — create `analyses` table + RLS
+2. **`app/(auth)/login/page.tsx`** — wire up Supabase `signInWithPassword`
+3. **`app/(auth)/signup/page.tsx`** — wire up Supabase `signUp`
+4. **`app/(dashboard)/dashboard/page.tsx`** — summary stats + quick-start CTA
+5. **`app/(dashboard)/history/page.tsx`** — list analyses with scores/dates
 
-### Scalable (post-launch)
+### P1 — Core product completeness
 
-| Concern | Upgrade | Why |
-|---------|---------|-----|
-| AI calls | Background jobs via Inngest/Trigger.dev | Handle timeouts, retries, Vercel 60s limit |
-| Rate limiting | Upstash Redis | Distributed, accurate |
-| Resume processing | Dedicated microservice | Isolate heavy compute |
-| PDF parsing | Dedicated worker or Apify | Better accuracy, handles scanned PDFs |
-| Auth | Add Google/LinkedIn OAuth | Reduce signup friction |
-| Billing | Stripe + usage metering | Monetize power users |
-| Caching | Redis cache AI results | Same resume+JD = no re-call |
-| Multi-tenancy | Org/team support | B2B expansion |
+6. **`app/api/analyses/route.ts`** — `GET` list (needed by history page)
+7. **`app/api/analyses/[id]/route.ts`** — `GET` single + `DELETE`
+8. **`components/analysis/StrengthsList.tsx`** — render `strengths[]` on result page
+9. **Export PDF** — wire up the Download button on result page (`react-pdf` or `jsPDF`)
+10. **`app/(dashboard)/analysis/[id]/loading.tsx`** — skeleton while fetching
+11. **`app/(dashboard)/analysis/[id]/error.tsx`** — error boundary UI
+
+### P2 — Polish & production-readiness
+
+12. **Rate limiting** on `/api/analyze` — simple in-memory or Upstash Redis
+13. **`types/database.ts`** — generate Supabase types with `supabase gen types`
+14. **Resume PDF upload** — `POST /api/resume/upload` + `pdf-parse` extraction
+15. **Env var validation** — check all required vars at startup
+16. **Google OAuth** — reduce signup friction
 
 ---
 
-## 8. Trade-offs
+## 9. Trade-offs & Decisions
 
-### Sync vs async AI processing
+### Single AI call vs multi-call pipeline
 
-| | Sync (MVP) | Async (Queue) |
+| | Single call (current) | Multi-call pipeline |
+|---|---|---|
+| Latency | ~5–10s | ~15–25s |
+| Cost | ~$0.002 | ~$0.005 |
+| Complexity | Low | High |
+| Output quality | Good | Slightly better |
+| **Verdict** | **Use for MVP** | **Consider post-launch** |
+
+### Synchronous vs async AI processing
+
+| | Sync (current) | Async queue |
 |---|---|---|
 | Complexity | Low | High |
 | UX | Loading spinner | Email/notification |
-| Vercel limit | ⚠️ 60s timeout risk | ✅ No limit |
-| **Verdict** | **Use for MVP** | **Migrate at scale** |
+| Vercel timeout | ⚠️ 60s risk | ✅ No limit |
+| **Verdict** | **Fine for MVP** | **Add Inngest/Trigger.dev at scale** |
 
-> **Mitigation for MVP:** Use streaming responses from OpenAI/Claude to show progressive output before timeout hits. `gpt-4o-mini` + concise prompts typically runs in 8–15s.
+> Mitigation: `claude-haiku-4-5` + max_tokens 1500 typically completes in 5–10s, well within 60s.
 
-### Single DB call vs JSONB vs normalized tables
+### JSONB vs normalized tables for AI output
 
-Storing `missing_skills`, `suggestions` etc. as **JSONB** vs separate tables:
-- JSONB wins for MVP — simpler queries, no joins, flexible schema evolution
-- Normalize only if you need to query "show all users missing React" across analyses
+- JSONB wins for MVP: no joins, flexible schema evolution, simpler queries
+- Normalize only if you need cross-analysis queries like "all users missing React"
 
-### OpenAI vs Claude
+### Text-paste vs PDF upload
 
-| | OpenAI `gpt-4o-mini` | Claude `haiku-4-5` |
-|---|---|---|
-| JSON reliability | ✅ `response_format: json_object` | ✅ Tool use / JSON mode |
-| Speed | Fast | Fast |
-| Cost | ~$0.003/analysis | ~$0.002/analysis |
-| **Verdict** | **Slightly easier JSON** | **Cheaper + equal quality** |
-
-Recommendation: Abstract the provider (as shown in section 5), default to OpenAI, configure via `AI_PROVIDER` env var.
+- Text-paste is faster to ship, works for all resume formats
+- PDF upload (P1): adds `pdf-parse` dependency + Supabase Storage bucket setup
+- Current architecture supports both — just add the upload route and pass `extractedText` to analyze
 
 ---
 
-## 9. Quick-start Checklist (7-day sprint)
+## 10. Deployment
 
 ```
-Day 1: Supabase project + auth + DB schema + env setup
-Day 2: Resume upload + PDF extraction
-Day 3: AI pipeline (prompts + parsing + Zod validation)
-Day 4: Core UI (upload form + results display)
-Day 5: History page + single analysis view
-Day 6: Polish (loading states, error handling, score ring animation)
-Day 7: Deploy to Vercel + domain + README
+Platform:    Vercel (recommended — App Router, Edge, serverless)
+Database:    Supabase (managed Postgres + Auth + Storage)
+AI:          Anthropic Claude API (haiku for cost, sonnet for quality)
+
+Environment variables needed in Vercel:
+  ANTHROPIC_API_KEY
+  ANTHROPIC_MODEL              (optional, defaults to claude-haiku-4-5-20251001)
+  NEXT_PUBLIC_SUPABASE_URL
+  NEXT_PUBLIC_SUPABASE_ANON_KEY
+  SUPABASE_SERVICE_ROLE_KEY    (if using server-side admin operations)
 ```
+
+### Deploy checklist
+- [ ] Create Supabase project + run migration
+- [ ] Enable Email auth in Supabase dashboard
+- [ ] Set all env vars in Vercel
+- [ ] Add Vercel domain to Supabase allowed origins
+- [ ] Test full flow: signup → analyze → view result → history
