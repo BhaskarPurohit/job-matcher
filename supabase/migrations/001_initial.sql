@@ -1,7 +1,7 @@
 -- supabase/migrations/001_initial.sql
 -- Run this in the Supabase SQL editor or via: supabase db push
 
-CREATE TABLE analyses (
+CREATE TABLE IF NOT EXISTS analyses (
   id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id          UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   job_title        TEXT NOT NULL,
