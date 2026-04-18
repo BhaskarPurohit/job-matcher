@@ -21,7 +21,14 @@ export async function middleware(request: NextRequest) {
     }
   )
 
-  const { data: { user } } = await supabase.auth.getUser()
+  let user = null
+  try {
+    const { data } = await supabase.auth.getUser()
+    user = data.user
+  } catch {
+    // If Supabase auth fails (e.g. bad key format), fail open so the app
+    // still loads — the individual pages/API routes handle their own auth.
+  }
 
   const { pathname } = request.nextUrl
 
