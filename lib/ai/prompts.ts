@@ -1,18 +1,25 @@
+// ~4 chars per token. Keep total input under ~3000 tokens.
+const RESUME_CHAR_LIMIT = 6000
+const JD_CHAR_LIMIT     = 3000
+
+function truncate(text: string, limit: number): string {
+  if (text.length <= limit) return text
+  return text.slice(0, limit) + '\n[truncated]'
+}
+
 export function buildAnalysisPrompt(resumeText: string, jobDescription: string): string {
-  return `You are an expert ATS (Applicant Tracking System) analyst and career coach.
+  const resume = truncate(resumeText.trim(), RESUME_CHAR_LIMIT)
+  const jd     = truncate(jobDescription.trim(), JD_CHAR_LIMIT)
 
-Analyze the resume against the job description and return a JSON object.
+  return `You are an ATS analyst. Analyze the resume against the job description and return JSON only.
 
----
 RESUME:
-${resumeText}
+${resume}
 
----
 JOB DESCRIPTION:
-${jobDescription}
+${jd}
 
----
-Return ONLY a valid JSON object with this exact shape. No markdown, no explanation, just JSON:
+Return ONLY valid JSON, no markdown:
 
 {
   "matchScore": <integer 0-100, how well the resume matches the job>,
