@@ -27,7 +27,7 @@ export async function analyzeResume(
 
   try {
     const response = await anthropic.messages.create({
-      model: process.env.ANTHROPIC_MODEL ?? 'claude-haiku-4-5-20251001',
+      model: process.env.ANTHROPIC_MODEL ?? 'claude-haiku-4-5',
       max_tokens: 1024,
       temperature: 0.2,
       messages: [{ role: 'user', content: prompt }],
