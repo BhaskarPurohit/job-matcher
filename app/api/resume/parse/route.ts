@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const pdfParse = require('pdf-parse') as (buf: Buffer) => Promise<{ text: string }>
+import { extractText, getDocumentProxy } from 'unpdf'
 
 const MAX_FILE_SIZE = 4 * 1024 * 1024 // 4MB — Vercel request body limit
 
@@ -37,10 +35,11 @@ export async function POST(req: NextRequest) {
 
   // Extract text
   try {
-    const buffer = Buffer.from(await file.arrayBuffer())
-    const { text } = await pdfParse(buffer)
+    const buffer = new Uint8Array(await file.arrayBuffer())
+    const pdf = await getDocumentProxy(buffer)
+    const { text } = await extractText(pdf, { mergePages: true })
 
-    const cleaned = text
+    const cleaned = (Array.isArray(text) ? text.join('\n') : text)
       .replace(/\r\n/g, '\n')
       .replace(/\n{3,}/g, '\n\n')
       .trim()
