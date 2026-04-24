@@ -126,9 +126,9 @@ function SkillsCard({ analysis }: { analysis: Analysis }) {
 
 function SuggestionsCard({ analysis }: { analysis: Analysis }) {
   // Deduplicate by section label — keep the last occurrence of each section
-  const seen = new Map<string, typeof analysis.suggestions[number]>()
-  for (const s of analysis.suggestions) seen.set(s.section, s)
-  const suggestions = [...seen.values()]
+  const seen: Record<string, typeof analysis.suggestions[number]> = {}
+  for (const s of analysis.suggestions) seen[s.section] = s
+  const suggestions = Object.values(seen)
 
   return (
     <Card className="bg-surface border-border">
