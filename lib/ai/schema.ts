@@ -65,7 +65,7 @@ export const AIAnalysisSchema = z.object({
   suggestions: z
     .array(
       z.object({
-        section:   z.enum(['summary', 'experience', 'skills', 'education']),
+        section:   z.enum(['Summary', 'Skills', 'Experience', 'Education', 'Projects', 'Certifications']),
         suggested: z.string().min(1),
         reasoning: z.string().min(1),
       })

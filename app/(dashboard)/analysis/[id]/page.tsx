@@ -125,6 +125,11 @@ function SkillsCard({ analysis }: { analysis: Analysis }) {
 }
 
 function SuggestionsCard({ analysis }: { analysis: Analysis }) {
+  // Deduplicate by section label — keep the last occurrence of each section
+  const seen = new Map<string, typeof analysis.suggestions[number]>()
+  for (const s of analysis.suggestions) seen.set(s.section, s)
+  const suggestions = [...seen.values()]
+
   return (
     <Card className="bg-surface border-border">
       <CardHeader className="pb-3 pt-5 px-5">
@@ -132,51 +137,60 @@ function SuggestionsCard({ analysis }: { analysis: Analysis }) {
           Actionable Suggestions
         </h2>
         <p className="text-xs text-muted">
-          {analysis.suggestions.length} specific improvements to boost your score
+          {suggestions.length} specific improvements to boost your score
         </p>
       </CardHeader>
       <Separator />
       <CardContent className="p-5 pt-2">
-        <Accordion type="multiple" className="space-y-2">
-          {analysis.suggestions.map((suggestion, i) => (
-            <AccordionItem
-              key={i}
-              value={String(i)}
-              className="border border-border rounded-lg overflow-hidden data-[state=open]:border-accent/20"
-            >
-              <AccordionTrigger className="px-4 py-3 hover:bg-surface-hover transition-colors hover:no-underline text-left">
-                <div className="flex items-center gap-3">
-                  <span className="text-[10px] font-mono text-muted bg-bg border border-border rounded px-1.5 py-0.5 shrink-0">
-                    {String(i + 1).padStart(2, '0')}
-                  </span>
-                  <span className="text-sm font-medium text-zinc-100 capitalize">
-                    {suggestion.section}
-                  </span>
-                </div>
-              </AccordionTrigger>
-              <AccordionContent>
-                <div className="px-4 pb-4 space-y-3">
-                  <Separator />
-                  <div className="space-y-1.5">
-                    <p className="text-xs text-muted font-medium uppercase tracking-wider">
-                      Suggestion
-                    </p>
-                    <p className="text-sm text-zinc-100 leading-relaxed">
-                      {suggestion.suggested}
-                    </p>
+        <Accordion type="multiple" defaultValue={['0']} className="space-y-2">
+          {suggestions.map((suggestion, i) => {
+            const preview = suggestion.suggested.split(/[.!?]/)[0].trim()
+            const subtitle = preview.length > 80 ? preview.slice(0, 80) + '…' : preview
+            return (
+              <AccordionItem
+                key={suggestion.section}
+                value={String(i)}
+                className="border border-border rounded-lg overflow-hidden data-[state=open]:border-accent/20"
+              >
+                <AccordionTrigger className="px-4 py-3 hover:bg-surface-hover transition-colors hover:no-underline text-left">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="text-[10px] font-mono text-muted bg-bg border border-border rounded px-1.5 py-0.5 shrink-0">
+                      {String(i + 1).padStart(2, '0')}
+                    </span>
+                    <div className="min-w-0">
+                      <span className="text-sm font-medium text-zinc-100 block">
+                        {suggestion.section}
+                      </span>
+                      <span className="text-xs text-muted truncate block max-w-xs sm:max-w-sm">
+                        {subtitle}
+                      </span>
+                    </div>
                   </div>
-                  <div className="space-y-1.5">
-                    <p className="text-xs text-muted font-medium uppercase tracking-wider">
-                      Reasoning
-                    </p>
-                    <p className="text-sm text-muted leading-relaxed">
-                      {suggestion.reasoning}
-                    </p>
+                </AccordionTrigger>
+                <AccordionContent>
+                  <div className="px-4 pb-4 space-y-3">
+                    <Separator />
+                    <div className="space-y-1.5">
+                      <p className="text-xs text-muted font-medium uppercase tracking-wider">
+                        Suggestion
+                      </p>
+                      <p className="text-sm text-zinc-100 leading-relaxed">
+                        {suggestion.suggested}
+                      </p>
+                    </div>
+                    <div className="space-y-1.5">
+                      <p className="text-xs text-muted font-medium uppercase tracking-wider">
+                        Reasoning
+                      </p>
+                      <p className="text-sm text-muted leading-relaxed">
+                        {suggestion.reasoning}
+                      </p>
+                    </div>
                   </div>
-                </div>
-              </AccordionContent>
-            </AccordionItem>
-          ))}
+                </AccordionContent>
+              </AccordionItem>
+            )
+          })}
         </Accordion>
       </CardContent>
     </Card>

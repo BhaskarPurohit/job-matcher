@@ -35,7 +35,7 @@ Return ONLY valid JSON, no markdown:
   "tailoredSummary": "<2-3 sentence professional summary written for this specific job>",
   "suggestions": [
     {
-      "section": "summary" | "experience" | "skills" | "education",
+      "section": "Summary" | "Skills" | "Experience" | "Education" | "Projects" | "Certifications",
       "suggested": "<specific actionable change to make>",
       "reasoning": "<why this change improves the match>"
     }
@@ -49,5 +49,7 @@ Rules:
 - strengths: 3-5 genuine strengths from the resume relevant to this role
 - tailoredSummary: write in first person, professional, targeted at this specific role
 - suggestions: 3-5 specific, actionable improvements (not vague advice)
+- suggestions[].section must be EXACTLY one of: "Summary", "Skills", "Experience", "Education", "Projects", "Certifications" — no other values
+- suggestions: each section label must appear AT MOST ONCE — never repeat the same section label across multiple suggestions; if you have two experience improvements, combine them into one
 - Return nothing outside the JSON object`
 }

@@ -1,6 +1,6 @@
 export type MatchTier = 'strong' | 'moderate' | 'weak'
 export type SkillImportance = 'required' | 'preferred' | 'nice-to-have'
-export type SuggestionSection = 'summary' | 'experience' | 'skills' | 'education'
+export type SuggestionSection = 'Summary' | 'Skills' | 'Experience' | 'Education' | 'Projects' | 'Certifications'
 
 export interface Skill {
   name: string
