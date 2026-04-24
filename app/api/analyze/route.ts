@@ -4,6 +4,7 @@ import { AnalyzeRequestSchema, extractFieldErrors } from '@/lib/ai/schema'
 import { computeKeywordScore } from '@/lib/scoring/keywordExtractor'
 import { runAIAnalysis, PRIORITY_MAP } from '@/lib/scoring/aiAnalyzer'
 import { computeCompositeScore } from '@/lib/scoring/compositeScorer'
+import { checkQuota, incrementUsage, logUsage } from '@/lib/usage/tracker'
 import { createClient } from '@/lib/supabase/server'
 import type {
   AnalyzeResponse,
@@ -43,7 +44,24 @@ export async function POST(
     return errorResponse('Unauthorized', 'INTERNAL_ERROR', 401)
   }
 
-  // ── Step 2: parse + validate request ──────────────────────────────────────
+  // ── Step 2: quota check — fail fast before any AI spend ───────────────────
+  const quota = await checkQuota(user.id)
+  if (!quota.allowed) {
+    return NextResponse.json(
+      {
+        success:  false,
+        code:     'RATE_LIMIT' as const,
+        error:    'quota_exceeded',
+        message:  `You've used all ${quota.limit} free analyses. Upgrade to Pro for unlimited.`,
+        used:     quota.used,
+        limit:    quota.limit,
+        fieldErrors: [],
+      } satisfies AnalyzeErrorResponse & { message: string; used: number; limit: number },
+      { status: 429 },
+    )
+  }
+
+  // ── Step 3: parse + validate request ──────────────────────────────────────
   let body: unknown
   try {
     body = await req.json()
@@ -59,7 +77,7 @@ export async function POST(
 
   const { resumeText, jobDescription, jobTitle, companyName } = parsed.data
 
-  // ── Step 3: hybrid scoring pipeline (keyword + AI in parallel) ────────────
+  // ── Step 4: hybrid scoring pipeline (keyword + AI in parallel) ────────────
   const startMs = Date.now()
 
   let keywordScore: number
@@ -81,14 +99,13 @@ export async function POST(
     return errorResponse('Analysis failed. Please try again.', 'AI_ERROR', 502)
   }
 
-  // ── Step 4: compose final score ────────────────────────────────────────────
+  // ── Step 5: composite score ───────────────────────────────────────────────
   const breakdown    = computeCompositeScore(keywordScore, aiResponse.result.aiScore)
   const { finalScore } = breakdown
   const matchTier    = getMatchTier(finalScore)
   const processingMs = Date.now() - startMs
 
-  // ── Step 5: map AI output → existing Analysis shape ───────────────────────
-  // Keep the frontend types stable; translate the new AI schema here.
+  // ── Step 6: map AI output → stable Analysis shape ─────────────────────────
   const { result } = aiResponse
 
   const presentSkills: Skill[] = result.presentSkills.map((name) => ({
@@ -104,10 +121,10 @@ export async function POST(
   const suggestions: Suggestion[] = result.suggestions.map((s) => ({
     section:   s.section,
     suggested: s.recommendation,
-    reasoning: '',               // new schema omits reasoning; field kept for type compat
+    reasoning: '',
   }))
 
-  // ── Step 6: persist ────────────────────────────────────────────────────────
+  // ── Step 7: persist analysis ───────────────────────────────────────────────
   const id = randomUUID()
 
   const { error: insertError } = await supabase.from('analyses').insert({
@@ -130,6 +147,21 @@ export async function POST(
     return errorResponse(`Failed to save analysis: ${insertError.message}`, 'INTERNAL_ERROR', 500)
   }
 
+  // ── Step 8: track usage (non-blocking, fire-and-forget) ───────────────────
+  const model = process.env.ANTHROPIC_MODEL ?? 'claude-haiku-4-5'
+  void Promise.all([
+    logUsage(
+      user.id,
+      id,
+      { prompt: aiResponse.promptTokens, completion: aiResponse.completionTokens },
+      model,
+    ),
+    incrementUsage(user.id),
+  ]).catch((err) => console.error('[analyze] Usage tracking error:', err))
+
+  // ── Step 9: respond with updated quota ────────────────────────────────────
+  const remaining = Math.max(0, quota.remaining - 1)
+
   return NextResponse.json({
     success: true,
     data: {
@@ -143,6 +175,10 @@ export async function POST(
       suggestions,
       scoreBreakdown:  breakdown,
       processingMs,
+      usage: {
+        remaining,
+        limit: quota.limit,
+      },
     },
   } satisfies AnalyzeResponse)
 }

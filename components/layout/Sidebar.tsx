@@ -15,7 +15,7 @@ const NAV_ITEMS = [
   { label: 'History',      href: '/history',   icon: History },
 ] as const
 
-export function Sidebar() {
+export function Sidebar({ quotaSlot }: { quotaSlot?: React.ReactNode }) {
   const pathname = usePathname()
   const router = useRouter()
   const [user, setUser] = useState<User | null>(null)
@@ -71,6 +71,7 @@ export function Sidebar() {
         })}
       </nav>
 
+      {quotaSlot}
       <div className="p-3 border-t border-border">
         <button
           onClick={handleSignOut}

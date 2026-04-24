@@ -57,6 +57,10 @@ export interface AnalyzeResponse {
     matchTier: MatchTier
     scoreBreakdown?: ScoreBreakdown
     processingMs: number
+    usage?: {
+      remaining: number
+      limit: number
+    }
   }
 }
 
