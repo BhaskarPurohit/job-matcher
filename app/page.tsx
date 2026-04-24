@@ -93,18 +93,17 @@ export default function LandingPage() {
       {/* Trust bar */}
       <section className="border-y border-border bg-surface/50">
         <div className="max-w-6xl mx-auto px-6 py-8">
-          <div className="flex flex-col md:flex-row items-center justify-between gap-8">
-            <p className="text-sm text-muted text-center md:text-left">
-              Trusted by <span className="text-zinc-100 font-semibold">12,400+</span> job seekers across industries
-            </p>
-            <div className="flex items-center gap-10">
-              {[{ value: "94%", label: "accuracy rate" }, { value: "< 15s", label: "avg. analysis time" }, { value: "3.2x", label: "more interviews" }].map((stat) => (
-                <div key={stat.label} className="text-center">
-                  <div className="text-2xl font-bold text-zinc-100 font-mono" style={{ fontFamily: "'JetBrains Mono', monospace" }}>{stat.value}</div>
-                  <div className="text-xs text-muted mt-0.5 uppercase tracking-wider">{stat.label}</div>
-                </div>
-              ))}
-            </div>
+          <div className="flex flex-col md:flex-row items-center justify-center gap-10">
+            {[
+              { value: "Free", label: "while in beta" },
+              { value: "Dev→Dev", label: "built by a developer, for developers" },
+              { value: "New", label: "cover letter generation" },
+            ].map((stat) => (
+              <div key={stat.label} className="text-center">
+                <div className="text-2xl font-bold text-zinc-100 font-mono" style={{ fontFamily: "'JetBrains Mono', monospace" }}>{stat.value}</div>
+                <div className="text-xs text-muted mt-0.5 uppercase tracking-wider">{stat.label}</div>
+              </div>
+            ))}
           </div>
         </div>
       </section>

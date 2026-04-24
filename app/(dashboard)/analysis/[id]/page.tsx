@@ -263,6 +263,9 @@ export default async function AnalysisResultPage({
               <span className="text-zinc-100 font-medium">{analysis.matchScore}%</span>{' '}
               of the requirements for this role.
             </p>
+            <p className="text-xs text-muted mt-2">
+              Score based on ATS keyword match (40%) + AI skill assessment (60%)
+            </p>
           </CardContent>
         </Card>
 
