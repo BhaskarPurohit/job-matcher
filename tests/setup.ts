@@ -1,16 +1,21 @@
 // Global test setup — runs before every test file.
 //
-// We mock the AI module here rather than in each test file so that:
-//   1. No test file ever accidentally makes a real OpenAI API call
-//   2. Tests stay fast and deterministic
-//   3. A missing OPENAI_API_KEY never breaks the test suite
-//
-// The mock is defined at the module level. Individual tests can override
-// the resolved value with vi.mocked(...).mockResolvedValueOnce() when they
-// need to test a specific AI response or error path.
+// We mock the AI module here so no test ever makes a real Anthropic API call.
+// Individual tests override the resolved value with mockResolvedValueOnce().
 
 import { vi } from 'vitest'
 
+// Mock the new AI analyzer (hybrid pipeline)
+vi.mock('@/lib/scoring/aiAnalyzer', () => ({
+  runAIAnalysis: vi.fn(),
+  PRIORITY_MAP: {
+    high:   'required',
+    medium: 'preferred',
+    low:    'nice-to-have',
+  },
+}))
+
+// Keep old module mock in case any other tests still import it
 vi.mock('@/lib/ai/analyze', () => ({
   analyzeResume: vi.fn(),
   AIAnalysisError: class AIAnalysisError extends Error {

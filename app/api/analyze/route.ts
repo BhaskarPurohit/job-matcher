@@ -1,13 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { randomUUID } from 'crypto'
-import { analyzeResume, AIAnalysisError } from '@/lib/ai/analyze'
 import { AnalyzeRequestSchema, extractFieldErrors } from '@/lib/ai/schema'
+import { computeKeywordScore } from '@/lib/scoring/keywordExtractor'
+import { runAIAnalysis, PRIORITY_MAP } from '@/lib/scoring/aiAnalyzer'
+import { computeCompositeScore } from '@/lib/scoring/compositeScorer'
 import { createClient } from '@/lib/supabase/server'
 import type {
   AnalyzeResponse,
   AnalyzeErrorResponse,
   FieldError,
   MatchTier,
+  Skill,
+  Suggestion,
 } from '@/types/analysis'
 
 function getMatchTier(score: number): MatchTier {
@@ -32,7 +36,7 @@ export async function POST(
   req: NextRequest,
 ): Promise<NextResponse<AnalyzeResponse | AnalyzeErrorResponse>> {
 
-  // ── Step 1: get authenticated user ────────────────────────────────────────
+  // ── Step 1: auth ───────────────────────────────────────────────────────────
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) {
@@ -55,58 +59,92 @@ export async function POST(
 
   const { resumeText, jobDescription, jobTitle, companyName } = parsed.data
 
-  // ── Step 3: run AI analysis ───────────────────────────────────────────────
+  // ── Step 3: hybrid scoring pipeline (keyword + AI in parallel) ────────────
   const startMs = Date.now()
 
+  let keywordScore: number
+  let aiResponse: Awaited<ReturnType<typeof runAIAnalysis>>
+
   try {
-    const result = await analyzeResume(resumeText, jobDescription)
-    const processingMs = Date.now() - startMs
-    const matchTier = getMatchTier(result.matchScore)
-    const id = randomUUID()
-
-    // ── Step 4: persist to Supabase ───────────────────────────────────────
-    const { error: insertError } = await supabase.from('analyses').insert({
-      id,
-      user_id:         user.id,
-      job_title:       jobTitle ?? 'Untitled Role',
-      company_name:    companyName ?? null,
-      match_score:     result.matchScore,
-      match_tier:      matchTier,
-      present_skills:  result.presentSkills,
-      missing_skills:  result.missingSkills,
-      strengths:       result.strengths,
-      tailored_summary: result.tailoredSummary,
-      suggestions:     result.suggestions,
-      processing_ms:   processingMs,
-    })
-
-    if (insertError) {
-      console.error('[analyze] Supabase insert error:', insertError.code, insertError.message, insertError.details)
-      return errorResponse(`Failed to save analysis: ${insertError.message}`, 'INTERNAL_ERROR', 500)
-    }
-
-    return NextResponse.json({
-      success: true,
-      data: { id, ...result, matchTier, processingMs },
-    } satisfies AnalyzeResponse)
-
+    ;[keywordScore, aiResponse] = await Promise.all([
+      Promise.resolve(computeKeywordScore(resumeText, jobDescription)),
+      runAIAnalysis(resumeText, jobDescription),
+    ])
   } catch (err) {
-    if (err instanceof AIAnalysisError) {
-      const isRateLimit =
-        err.message.toLowerCase().includes('rate limit') ||
-        err.message.toLowerCase().includes('429')
-
-      if (isRateLimit) {
-        return errorResponse('AI service is rate limited. Please try again in a moment.', 'RATE_LIMIT', 429)
-      }
-
-      console.error('[analyze] AI error:', err.message, err.cause)
-      return errorResponse('Analysis failed. Please try again.', 'AI_ERROR', 502)
+    const message = err instanceof Error ? err.message : 'Analysis pipeline failed'
+    const isRateLimit = message.toLowerCase().includes('rate limit') ||
+                        message.toLowerCase().includes('429')
+    if (isRateLimit) {
+      return errorResponse('AI service is rate limited. Please try again in a moment.', 'RATE_LIMIT', 429)
     }
-
-    console.error('[analyze] Unexpected error:', err)
-    return errorResponse('An unexpected error occurred', 'INTERNAL_ERROR', 500)
+    console.error('[analyze] Pipeline error:', err)
+    return errorResponse('Analysis failed. Please try again.', 'AI_ERROR', 502)
   }
+
+  // ── Step 4: compose final score ────────────────────────────────────────────
+  const breakdown    = computeCompositeScore(keywordScore, aiResponse.result.aiScore)
+  const { finalScore } = breakdown
+  const matchTier    = getMatchTier(finalScore)
+  const processingMs = Date.now() - startMs
+
+  // ── Step 5: map AI output → existing Analysis shape ───────────────────────
+  // Keep the frontend types stable; translate the new AI schema here.
+  const { result } = aiResponse
+
+  const presentSkills: Skill[] = result.presentSkills.map((name) => ({
+    name,
+    importance: 'preferred' as const,
+  }))
+
+  const missingSkills: Skill[] = result.missingSkills.map((s) => ({
+    name:       s.skill,
+    importance: PRIORITY_MAP[s.priority] ?? 'preferred',
+  }))
+
+  const suggestions: Suggestion[] = result.suggestions.map((s) => ({
+    section:   s.section,
+    suggested: s.recommendation,
+    reasoning: '',               // new schema omits reasoning; field kept for type compat
+  }))
+
+  // ── Step 6: persist ────────────────────────────────────────────────────────
+  const id = randomUUID()
+
+  const { error: insertError } = await supabase.from('analyses').insert({
+    id,
+    user_id:          user.id,
+    job_title:        jobTitle ?? 'Untitled Role',
+    company_name:     companyName ?? null,
+    match_score:      finalScore,
+    match_tier:       matchTier,
+    present_skills:   presentSkills,
+    missing_skills:   missingSkills,
+    strengths:        result.keyStrengths,
+    tailored_summary: result.tailoredSummary,
+    suggestions,
+    processing_ms:    processingMs,
+  })
+
+  if (insertError) {
+    console.error('[analyze] Supabase insert error:', insertError.code, insertError.message)
+    return errorResponse(`Failed to save analysis: ${insertError.message}`, 'INTERNAL_ERROR', 500)
+  }
+
+  return NextResponse.json({
+    success: true,
+    data: {
+      id,
+      matchScore:      finalScore,
+      matchTier,
+      presentSkills,
+      missingSkills,
+      strengths:       result.keyStrengths,
+      tailoredSummary: result.tailoredSummary,
+      suggestions,
+      scoreBreakdown:  breakdown,
+      processingMs,
+    },
+  } satisfies AnalyzeResponse)
 }
 
 export function GET()    { return errorResponse('Method not allowed', 'INTERNAL_ERROR', 405) }

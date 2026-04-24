@@ -2,6 +2,14 @@ export type MatchTier = 'strong' | 'moderate' | 'weak'
 export type SkillImportance = 'required' | 'preferred' | 'nice-to-have'
 export type SuggestionSection = 'Summary' | 'Skills' | 'Experience' | 'Education' | 'Projects' | 'Certifications'
 
+// ── Hybrid scoring breakdown (stored + returned alongside the analysis) ──────
+export interface ScoreBreakdown {
+  keywordScore: number
+  aiScore:      number
+  finalScore:   number
+  methodology:  string
+}
+
 export interface Skill {
   name: string
   importance: SkillImportance
@@ -29,6 +37,7 @@ export interface Analysis extends AIAnalysisResult {
   jobTitle: string
   companyName?: string
   matchTier: MatchTier
+  scoreBreakdown?: ScoreBreakdown
   createdAt: string
   processingMs: number
 }
@@ -46,6 +55,7 @@ export interface AnalyzeResponse {
   data: AIAnalysisResult & {
     id: string
     matchTier: MatchTier
+    scoreBreakdown?: ScoreBreakdown
     processingMs: number
   }
 }
