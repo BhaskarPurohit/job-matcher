@@ -1,17 +1,32 @@
-import { createClient } from '@/lib/supabase/server'
-import { checkQuota } from '@/lib/usage/tracker'
+'use client'
+
+import { useEffect, useState } from 'react'
+import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 
-/**
- * Server component — renders inline quota pill.
- * Suitable for the sidebar footer or dashboard top bar.
- */
-export async function QuotaBadge() {
-  const supabase = createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return null
+interface QuotaData {
+  used:      number
+  limit:     number
+  remaining: number
+}
 
-  const quota = await checkQuota(user.id)
+export function QuotaBadge() {
+  const pathname = usePathname()
+  const [quota, setQuota] = useState<QuotaData | null>(null)
+
+  useEffect(() => {
+    fetch('/api/usage/me')
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (data && typeof data.used === 'number') {
+          setQuota({ used: data.used, limit: data.limit, remaining: data.remaining })
+        }
+      })
+      .catch(() => null)
+  }, [pathname]) // re-fetch on every route change
+
+  if (!quota) return null
+
   const { used, limit, remaining } = quota
   const pct = Math.round((used / limit) * 100)
 
@@ -35,7 +50,6 @@ export async function QuotaBadge() {
           </span>
         </div>
 
-        {/* Progress bar */}
         <div className="h-1 bg-border rounded-full overflow-hidden">
           <div
             className={cn('h-full rounded-full transition-all', barColor)}
