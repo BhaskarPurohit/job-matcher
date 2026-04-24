@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import {
   ArrowRight, CheckCircle2, Loader2,
-  Upload, FileText, X, AlignLeft,
+  Upload, FileText, X, AlignLeft, AlertTriangle,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAnalyze } from '@/lib/hooks/useAnalyze'
@@ -67,6 +67,7 @@ export default function AnalyzePage() {
   const [resumeText, setResumeText] = useState('')
   const [uploadedFile, setUploadedFile] = useState<File | null>(null)
   const [uploadError, setUploadError] = useState('')
+  const [parseWarnings, setParseWarnings] = useState<string[]>([])
   const [parsing, setParsing] = useState(false)
 
   const [jobTitle, setJobTitle] = useState('')
@@ -85,6 +86,7 @@ export default function AnalyzePage() {
     if (!file) return
 
     setUploadError('')
+    setParseWarnings([])
     setUploadedFile(file)
     setParsing(true)
     setResumeText('')
@@ -100,13 +102,13 @@ export default function AnalyzePage() {
         setUploadedFile(null)
       } else {
         setResumeText(json.text)
+        if (json.warnings?.length) setParseWarnings(json.warnings)
       }
     } catch {
-      setUploadError('Failed to parse PDF. Please try pasting your resume instead.')
+      setUploadError('Failed to parse file. Please try pasting your resume instead.')
       setUploadedFile(null)
     } finally {
       setParsing(false)
-      // reset input so same file can be re-selected
       if (fileInputRef.current) fileInputRef.current.value = ''
     }
   }
@@ -115,6 +117,7 @@ export default function AnalyzePage() {
     setUploadedFile(null)
     setResumeText('')
     setUploadError('')
+    setParseWarnings([])
   }
 
   async function handleAnalyze() {
@@ -164,7 +167,7 @@ export default function AnalyzePage() {
                   )}
                 >
                   <Upload className="w-3.5 h-3.5" />
-                  Upload PDF
+                  Upload File
                 </button>
                 <button
                   onClick={() => { setResumeMode('paste'); clearFile() }}
@@ -186,7 +189,7 @@ export default function AnalyzePage() {
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept="application/pdf"
+                    accept="application/pdf,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx"
                     onChange={handleFileChange}
                     className="hidden"
                     id="resume-upload"
@@ -198,8 +201,8 @@ export default function AnalyzePage() {
                       className="flex flex-col items-center justify-center w-full h-40 border-2 border-dashed border-border rounded-lg cursor-pointer hover:border-accent/40 hover:bg-accent/5 transition-all"
                     >
                       <Upload className="w-8 h-8 text-muted mb-2" />
-                      <p className="text-sm font-medium text-zinc-100">Click to upload PDF</p>
-                      <p className="text-xs text-muted mt-1">Max 4MB</p>
+                      <p className="text-sm font-medium text-zinc-100">Click to upload PDF or DOCX</p>
+                      <p className="text-xs text-muted mt-1">PDF · DOCX · Max 4MB</p>
                     </label>
                   )}
 
@@ -330,6 +333,14 @@ export default function AnalyzePage() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Parse quality warning */}
+        {parseWarnings.length > 0 && (
+          <div className="mb-4 flex items-start gap-3 text-sm text-warning bg-warning-dim border border-warning/20 rounded-lg px-4 py-3">
+            <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+            <p className="leading-relaxed">{parseWarnings[0]}</p>
+          </div>
+        )}
 
         {/* Error banner */}
         {state.status === 'error' && state.fieldErrors.length === 0 && (
