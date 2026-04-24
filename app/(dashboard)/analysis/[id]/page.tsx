@@ -18,6 +18,7 @@ import { cn } from '@/lib/utils'
 import { ScoreRing } from '@/components/analysis/ScoreRing'
 import { CopyButton } from '@/components/analysis/CopyButton'
 import { StrengthsList } from '@/components/analysis/StrengthsList'
+import { NextStepsBanner } from '@/components/analysis/NextStepsBanner'
 import { getAnalysisById } from '@/lib/data/analyses'
 import type { Analysis, MatchTier, SkillImportance } from '@/types/analysis'
 
@@ -269,6 +270,13 @@ export default async function AnalysisResultPage({
           </CardContent>
         </Card>
 
+        {/* Next steps */}
+        <NextStepsBanner
+          score={analysis.matchScore}
+          skillGaps={analysis.missingSkills}
+          topSuggestion={analysis.suggestions[0]?.suggested ?? ''}
+        />
+
         {/* Skills */}
         <SkillsCard analysis={analysis} />
 
@@ -276,7 +284,7 @@ export default async function AnalysisResultPage({
         <StrengthsList strengths={analysis.strengths} />
 
         {/* Tailored summary */}
-        <Card className="bg-surface border-border">
+        <Card id="tailored-summary" className="bg-surface border-border">
           <CardHeader className="pb-3 pt-5 px-5">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold text-zinc-100 flex items-center gap-2">
