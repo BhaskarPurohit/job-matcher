@@ -98,7 +98,7 @@ export function Sidebar({ quotaSlot }: { quotaSlot?: React.ReactNode }) {
       <aside className="hidden md:flex w-56 shrink-0 border-r border-border bg-bg flex-col min-h-screen sticky top-0">
         <div className="h-14 flex items-center px-5 border-b border-border">
           <Link
-            href="/"
+            href="/dashboard"
             className="text-accent font-mono font-bold text-base tracking-tight hover:opacity-80 transition-opacity"
             style={{ fontFamily: "'JetBrains Mono', monospace" }}
           >
@@ -111,7 +111,7 @@ export function Sidebar({ quotaSlot }: { quotaSlot?: React.ReactNode }) {
       {/* ── Mobile top bar ── */}
       <div className="md:hidden fixed top-0 left-0 right-0 z-40 h-14 bg-bg border-b border-border flex items-center justify-between px-4">
         <Link
-          href="/"
+          href="/dashboard"
           className="text-accent font-mono font-bold text-base tracking-tight"
           style={{ fontFamily: "'JetBrains Mono', monospace" }}
         >
