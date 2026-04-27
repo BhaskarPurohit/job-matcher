@@ -1,25 +1,21 @@
 import 'server-only'
 import { createClient } from '@/lib/supabase/server'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Pricing (Claude Haiku — matches what the app uses)
-// Update if model changes.  Values are USD per 1 000 tokens.
-// ─────────────────────────────────────────────────────────────────────────────
+// Claude Haiku token pricing (USD per 1 000 tokens).
+// Update manually if the model or Anthropic pricing changes.
 export const COST_PER_1K_TOKENS = {
-  input:  0.000003,   // $0.000003 / 1k input tokens  (Haiku)
-  output: 0.000015,   // $0.000015 / 1k output tokens (Haiku)
+  input:  0.000003,  // $0.000003 / 1k input tokens
+  output: 0.000015,  // $0.000015 / 1k output tokens
 } as const
 
 function calcCost(promptTokens: number, completionTokens: number): number {
   const inputCost  = (promptTokens    / 1000) * COST_PER_1K_TOKENS.input
   const outputCost = (completionTokens / 1000) * COST_PER_1K_TOKENS.output
-  // Round to 6 decimal places — matches NUMERIC(10,6) column
+  // Round to 6 decimal places — matches NUMERIC(10,6) column in usage_logs
   return Math.round((inputCost + outputCost) * 1_000_000) / 1_000_000
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Quota check
-// ─────────────────────────────────────────────────────────────────────────────
 export interface QuotaStatus {
   allowed:   boolean
   used:      number
@@ -37,9 +33,11 @@ export async function checkQuota(userId: string): Promise<QuotaStatus> {
     .eq('user_id', userId)
     .single()
 
-  // If no row yet (e.g. pre-existing user before trigger was added),
-  // upsert a fresh quota row and treat as allowed.
   if (error || !data) {
+    // Row missing — pre-existing user before the trigger was deployed, or DB
+    // tables not yet created.  Log the error so it surfaces in server logs,
+    // then upsert a fresh row and treat the request as allowed.
+    console.error('[usage] checkQuota error for', userId, error?.message ?? 'no data — table may not exist')
     await supabase.from('usage_quotas').upsert(
       { user_id: userId },
       { onConflict: 'user_id', ignoreDuplicates: true }
@@ -55,47 +53,66 @@ export async function checkQuota(userId: string): Promise<QuotaStatus> {
   return { allowed: remaining > 0, used, limit, remaining, resetAt }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Increment analyses_used counter (call after a successful analysis)
-// ─────────────────────────────────────────────────────────────────────────────
-export async function incrementUsage(userId: string): Promise<void> {
-  const supabase = createClient()
+/**
+ * Increment the analyses_used counter for a user.
+ *
+ * Accepts an optional pre-created Supabase client so this function can be
+ * called safely within an active Next.js request context.  If a new client
+ * were created here after NextResponse.json() has already been returned, the
+ * cookies() store would be torn down and RLS would silently block the UPDATE.
+ */
+export async function incrementUsage(
+  userId:  string,
+  client?: SupabaseClient,
+): Promise<void> {
+  const supabase = client ?? createClient()
 
-  const { error } = await supabase.rpc('increment_analyses_used', { p_user_id: userId })
+  // Preferred path: atomic SQL increment via deployed RPC function.
+  const { error: rpcErr } = await supabase.rpc('increment_analyses_used', {
+    p_user_id: userId,
+  })
 
-  if (error) {
-    // Fallback: manual read-modify-write (if RPC doesn't exist yet)
-    const { data } = await supabase
-      .from('usage_quotas')
-      .select('analyses_used')
-      .eq('user_id', userId)
-      .single()
+  if (!rpcErr) return
 
-    await supabase
-      .from('usage_quotas')
-      .update({
-        analyses_used: ((data?.analyses_used as number) ?? 0) + 1,
-        updated_at:    new Date().toISOString(),
-      })
-      .eq('user_id', userId)
+  // Fallback: read-modify-write.  Slight race condition under concurrent
+  // requests from the same user, but acceptable until the RPC is deployed.
+  const { data } = await supabase
+    .from('usage_quotas')
+    .select('analyses_used')
+    .eq('user_id', userId)
+    .single()
+
+  const current = (data?.analyses_used as number) ?? 0
+
+  const { error: updateErr } = await supabase
+    .from('usage_quotas')
+    .update({ analyses_used: current + 1, updated_at: new Date().toISOString() })
+    .eq('user_id', userId)
+
+  if (updateErr) {
+    console.error('[usage] incrementUsage fallback error:', updateErr.message)
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Log a single AI call to usage_logs
-// ─────────────────────────────────────────────────────────────────────────────
 export interface TokenCounts {
   prompt:     number
   completion: number
 }
 
+/**
+ * Append a row to usage_logs for a single AI API call.
+ *
+ * Non-fatal — a logging failure must never break the user's analysis response.
+ * Accepts an optional pre-created client for the same reason as incrementUsage.
+ */
 export async function logUsage(
   userId:     string,
   analysisId: string | null,
   tokens:     TokenCounts,
   model:      string,
+  client?:    SupabaseClient,
 ): Promise<void> {
-  const supabase = createClient()
+  const supabase = client ?? createClient()
   const costUsd  = calcCost(tokens.prompt, tokens.completion)
 
   const { error } = await supabase.from('usage_logs').insert({
@@ -108,15 +125,10 @@ export async function logUsage(
   })
 
   if (error) {
-    // Non-fatal — log to server console but never throw.
-    // A logging failure must never break the user's analysis response.
     console.error('[usage] logUsage insert error:', error.message)
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Helper
-// ─────────────────────────────────────────────────────────────────────────────
 function nextMonthStart(): string {
   const d = new Date()
   return new Date(d.getFullYear(), d.getMonth() + 1, 1).toISOString()

@@ -147,16 +147,17 @@ export async function POST(
     return errorResponse(`Failed to save analysis: ${insertError.message}`, 'INTERNAL_ERROR', 500)
   }
 
-  // ── Step 8: track usage (non-blocking, fire-and-forget) ───────────────────
+  // ── Step 8: track usage — must await before return so request context is live
   const model = process.env.ANTHROPIC_MODEL ?? 'claude-haiku-4-5'
-  void Promise.all([
+  await Promise.all([
     logUsage(
       user.id,
       id,
       { prompt: aiResponse.promptTokens, completion: aiResponse.completionTokens },
       model,
+      supabase,
     ),
-    incrementUsage(user.id),
+    incrementUsage(user.id, supabase),
   ]).catch((err) => console.error('[analyze] Usage tracking error:', err))
 
   // ── Step 9: respond with updated quota ────────────────────────────────────
